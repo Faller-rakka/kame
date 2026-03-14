@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+
+const CHARS_PER_LINE = 23;
 
 interface Segment {
   author: string;
@@ -18,6 +20,7 @@ interface Participant {
 interface Keyword {
   word: string;
   addedBy: string;
+  directions: string[]; // 'h' | 'v' | 'd'
 }
 
 interface MemoData {
@@ -26,50 +29,121 @@ interface MemoData {
   keywords: Keyword[];
 }
 
-// セグメント全体を結合した文字列でキーワードを検索し、
-// 各セグメントのオフセットを考慮してハイライト位置を計算する
-function buildKeywordedPositions(segments: { text: string }[], keywords: string[]): Set<number> {
-  const positions = new Set<number>();
-  if (keywords.length === 0) return positions;
-  const fullText = segments.map((s) => s.text).join('');
-  const escaped = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const regex = new RegExp(escaped.join('|'), 'gi');
-  let match;
-  while ((match = regex.exec(fullText)) !== null) {
-    for (let i = match.index; i < match.index + match[0].length; i++) {
-      positions.add(i);
-    }
-  }
-  return positions;
+interface HighlightInfo {
+  hTop: boolean;
+  hBottom: boolean;
+  hLeft: boolean;
+  hRight: boolean;
+  vd: boolean;
 }
 
-function renderSegmentWithHighlights(
-  seg: { text: string; color: string },
-  offset: number,
-  keywordedPositions: Set<number>
-): React.ReactNode {
-  const spans: { text: string; highlighted: boolean }[] = [];
-  let i = 0;
-  while (i < seg.text.length) {
-    const highlighted = keywordedPositions.has(offset + i);
-    let j = i;
-    while (j < seg.text.length && keywordedPositions.has(offset + j) === highlighted) j++;
-    spans.push({ text: seg.text.slice(i, j), highlighted });
-    i = j;
+function getHighlightInfo(
+  fullText: string,
+  keywords: Keyword[],
+  charsPerLine: number
+): Map<number, HighlightInfo> {
+  const map = new Map<number, HighlightInfo>();
+  const get = (p: number): HighlightInfo =>
+    map.get(p) ?? { hTop: false, hBottom: false, hLeft: false, hRight: false, vd: false };
+
+  const totalChars = fullText.length;
+  const totalRows = Math.ceil(totalChars / charsPerLine);
+
+  for (const kw of keywords) {
+    if (!kw.word) continue;
+    const word = kw.word;
+    const kLen = word.length;
+    const dirs = kw.directions ?? ['h'];
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    if (dirs.includes('h')) {
+      for (let row = 0; row < totalRows; row++) {
+        const lineStart = row * charsPerLine;
+        const lineEnd = Math.min(lineStart + charsPerLine, totalChars);
+        const line = fullText.slice(lineStart, lineEnd);
+        const regex = new RegExp(escaped, 'gi');
+        let m;
+        while ((m = regex.exec(line)) !== null) {
+          const start = lineStart + m.index;
+          const end = start + kLen - 1;
+          for (let p = start; p <= end; p++) {
+            const info = get(p);
+            map.set(p, {
+              ...info,
+              hTop: true,
+              hBottom: true,
+              hLeft: info.hLeft || p === start,
+              hRight: info.hRight || p === end,
+            });
+          }
+        }
+      }
+    }
+
+    if (dirs.includes('v')) {
+      for (let row = 0; row + kLen <= totalRows; row++) {
+        for (let col = 0; col < charsPerLine; col++) {
+          let match = true;
+          for (let j = 0; j < kLen; j++) {
+            const pos = (row + j) * charsPerLine + col;
+            if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            for (let j = 0; j < kLen; j++) {
+              const pos = (row + j) * charsPerLine + col;
+              map.set(pos, { ...get(pos), vd: true });
+            }
+          }
+        }
+      }
+    }
+
+    if (dirs.includes('d')) {
+      // ↘
+      for (let row = 0; row + kLen <= totalRows; row++) {
+        for (let col = 0; col + kLen <= charsPerLine; col++) {
+          let match = true;
+          for (let j = 0; j < kLen; j++) {
+            const pos = (row + j) * charsPerLine + (col + j);
+            if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            for (let j = 0; j < kLen; j++) {
+              const pos = (row + j) * charsPerLine + (col + j);
+              map.set(pos, { ...get(pos), vd: true });
+            }
+          }
+        }
+      }
+      // ↙
+      for (let row = 0; row + kLen <= totalRows; row++) {
+        for (let col = kLen - 1; col < charsPerLine; col++) {
+          let match = true;
+          for (let j = 0; j < kLen; j++) {
+            const pos = (row + j) * charsPerLine + (col - j);
+            if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
+              match = false;
+              break;
+            }
+          }
+          if (match) {
+            for (let j = 0; j < kLen; j++) {
+              const pos = (row + j) * charsPerLine + (col - j);
+              map.set(pos, { ...get(pos), vd: true });
+            }
+          }
+        }
+      }
+    }
   }
-  return (
-    <span style={{ color: seg.color }}>
-      {spans.map((span, idx) =>
-        span.highlighted ? (
-          <span key={idx} style={{ outline: '2px solid red', borderRadius: '2px', padding: '0 1px' }}>
-            {span.text}
-          </span>
-        ) : (
-          span.text
-        )
-      )}
-    </span>
-  );
+
+  return map;
 }
 
 export default function MemoPage() {
@@ -84,11 +158,25 @@ export default function MemoPage() {
   const [copied, setCopied] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [newKeywordDirs, setNewKeywordDirs] = useState<string[]>(['h']);
 
   const userColor = memo.participants.find((p) => p.name === userName)?.color ?? '#888';
-  const allKeywords = (memo.keywords ?? []).map((k) => k.word);
-  const keywordedPositions = buildKeywordedPositions(memo.segments, allKeywords);
+
+  // Build grid data
+  const fullText = memo.segments.map((s) => s.text).join('');
+  const charColors: string[] = [];
+  for (const seg of memo.segments) {
+    for (let i = 0; i < seg.text.length; i++) charColors.push(seg.color);
+  }
+  const highlightInfo = getHighlightInfo(fullText, memo.keywords ?? [], CHARS_PER_LINE);
+  const gridRows: { char: string; color: string; pos: number }[][] = [];
+  for (let i = 0; i < fullText.length; i += CHARS_PER_LINE) {
+    const row: { char: string; color: string; pos: number }[] = [];
+    for (let j = i; j < Math.min(i + CHARS_PER_LINE, fullText.length); j++) {
+      row.push({ char: fullText[j], color: charColors[j], pos: j });
+    }
+    gridRows.push(row);
+  }
 
   const fetchMemo = useCallback(async () => {
     try {
@@ -109,10 +197,6 @@ export default function MemoPage() {
     const interval = setInterval(fetchMemo, 2000);
     return () => clearInterval(interval);
   }, [userName, fetchMemo]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [memo.segments.length]);
 
   const handleJoin = async () => {
     const name = nameInput.trim();
@@ -149,18 +233,24 @@ export default function MemoPage() {
         e.preventDefault();
         handleSave();
       } else {
-        e.preventDefault(); // 改行禁止
+        e.preventDefault();
       }
     }
   };
 
+  const toggleDir = (dir: string) => {
+    setNewKeywordDirs((prev) =>
+      prev.includes(dir) ? prev.filter((d) => d !== dir) : [...prev, dir]
+    );
+  };
+
   const handleAddKeyword = async () => {
     const word = keywordInput.trim();
-    if (!word) return;
+    if (!word || newKeywordDirs.length === 0) return;
     const res = await fetch(`/api/memo/${id}/keywords`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: userName, word, action: 'add' }),
+      body: JSON.stringify({ name: userName, word, action: 'add', directions: newKeywordDirs }),
     });
     const data = await res.json();
     setMemo(data);
@@ -214,22 +304,12 @@ export default function MemoPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex flex-col">
-      {/* Header */}
-      <header className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 py-3 flex items-center gap-3">
+      {/* Header row 1: title + buttons */}
+      <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 pt-3 pb-1 flex items-center gap-3">
         <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 shrink-0">
           共有メモ帳
         </h1>
-        <div className="flex-1 flex items-center gap-2 overflow-x-auto min-w-0">
-          {memo.participants.map((p) => (
-            <span
-              key={p.name}
-              className="text-xs px-2 py-0.5 rounded-full text-white font-medium whitespace-nowrap"
-              style={{ backgroundColor: p.color }}
-            >
-              {p.name}
-            </span>
-          ))}
-        </div>
+        <div className="flex-1" />
         <button
           onClick={() => setShowConfig(!showConfig)}
           className="text-sm px-3 py-1.5 rounded-md bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-200 hover:opacity-80 transition-opacity shrink-0"
@@ -242,12 +322,41 @@ export default function MemoPage() {
         >
           {copied ? 'コピー済み!' : 'リンクをコピー'}
         </button>
-      </header>
+      </div>
+      {/* Header row 2: participants */}
+      <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 pb-2 flex items-center gap-2 overflow-x-auto">
+        {memo.participants.length === 0 && (
+          <span className="text-xs text-zinc-400">参加者なし</span>
+        )}
+        {memo.participants.map((p) => (
+          <span
+            key={p.name}
+            className="text-xs px-2 py-0.5 rounded-full text-white font-medium whitespace-nowrap"
+            style={{ backgroundColor: p.color }}
+          >
+            {p.name}
+          </span>
+        ))}
+      </div>
 
       {/* Config panel */}
       {showConfig && (
         <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">強調キーワード設定</h2>
+          <div className="flex gap-3 items-center">
+            <span className="text-xs text-zinc-500">方向:</span>
+            {[['h', '横'], ['v', '縦'], ['d', '斜め']].map(([dir, label]) => (
+              <label key={dir} className="flex items-center gap-1 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={newKeywordDirs.includes(dir)}
+                  onChange={() => toggleDir(dir)}
+                  className="rounded"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
           <div className="flex gap-2">
             <input
               type="text"
@@ -259,7 +368,7 @@ export default function MemoPage() {
             />
             <button
               onClick={handleAddKeyword}
-              disabled={!keywordInput.trim()}
+              disabled={!keywordInput.trim() || newKeywordDirs.length === 0}
               className="px-3 py-1.5 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 rounded-lg text-sm font-medium hover:opacity-80 disabled:opacity-40 transition-opacity"
             >
               追加
@@ -272,7 +381,9 @@ export default function MemoPage() {
                 className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700"
               >
                 {k.word}
-                <span className="text-zinc-400">({k.addedBy})</span>
+                <span className="text-zinc-400">
+                  ({k.addedBy} / {(k.directions ?? ['h']).map(d => d === 'h' ? '横' : d === 'v' ? '縦' : '斜').join('・')})
+                </span>
                 {k.addedBy === userName && (
                   <button
                     onClick={() => handleRemoveKeyword(k.word)}
@@ -290,29 +401,55 @@ export default function MemoPage() {
         </div>
       )}
 
-      {/* Inline text content */}
-      <main className="flex-1 overflow-y-auto p-4">
-        {memo.segments.length === 0 && (
-          <p className="text-center text-zinc-400 mt-16 text-sm">
+      {/* Grid content */}
+      <main className="flex-1 overflow-auto p-4 flex justify-center">
+        {fullText.length === 0 ? (
+          <p className="text-center text-zinc-400 mt-16 text-sm self-start w-full">
             まだ内容がありません。最初のメモを書いてみましょう！
           </p>
+        ) : (
+          <div
+            style={{
+              fontFamily: '"Courier New", Courier, monospace',
+              fontSize: '16px',
+              columns: 'auto',
+              columnWidth: '23ch',
+              columnGap: '0',
+              columnRule: '1px solid #9ca3af',
+              columnFill: 'auto',
+              height: 'calc(100vh - 220px)',
+            }}
+          >
+            {gridRows.map((row, rowIdx) => (
+              <div
+                key={rowIdx}
+                style={{ breakInside: 'avoid', lineHeight: '1.8', padding: '0 8px', width: '23ch' }}
+              >
+                {row.map((cell, colIdx) => {
+                  const info = highlightInfo.get(cell.pos);
+                  const style: React.CSSProperties = { color: cell.color };
+                  if (info?.vd) {
+                    style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                    style.borderRadius = '2px';
+                  }
+                  if (info?.hTop) {
+                    style.display = 'inline-block';
+                    style.borderTop = '2px solid #ef4444';
+                    style.borderBottom = '2px solid #ef4444';
+                    style.lineHeight = 'inherit';
+                    if (info.hLeft) style.borderLeft = '2px solid #ef4444';
+                    if (info.hRight) style.borderRight = '2px solid #ef4444';
+                  }
+                  return (
+                    <span key={colIdx} style={style}>
+                      {cell.char}
+                    </span>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         )}
-        <p className="text-sm leading-relaxed break-words">
-          {(() => {
-            let offset = 0;
-            return memo.segments.map((seg, i) => {
-              const segOffset = offset;
-              offset += seg.text.length;
-              return (
-                <span key={i}>
-                  {i > 0 && ' '}
-                  {renderSegmentWithHighlights(seg, segOffset, keywordedPositions)}
-                </span>
-              );
-            });
-          })()}
-        </p>
-        <div ref={bottomRef} />
       </main>
 
       {/* Input area */}

@@ -8,6 +8,7 @@ const ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 interface Keyword {
   word: string;
   addedBy: string;
+  directions: string[];
 }
 
 interface MemoData {
@@ -29,6 +30,7 @@ export async function POST(
   const name = String(body.name ?? '').trim();
   const word = String(body.word ?? '').trim();
   const action = body.action;
+  const directions: string[] = Array.isArray(body.directions) ? body.directions : ['h'];
 
   if (!name || !word) {
     return NextResponse.json({ error: 'Missing name or word' }, { status: 400 });
@@ -42,7 +44,7 @@ export async function POST(
       (k) => k.word.toLowerCase() === word.toLowerCase() && k.addedBy === name
     );
     if (!alreadyExists) {
-      existing.keywords.push({ word, addedBy: name });
+      existing.keywords.push({ word, addedBy: name, directions });
     }
   } else if (action === 'remove') {
     existing.keywords = existing.keywords.filter(
