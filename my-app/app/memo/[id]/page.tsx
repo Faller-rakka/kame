@@ -62,6 +62,13 @@ function cellBackground(h: boolean, v: boolean, d: boolean): string | undefined 
   return undefined;
 }
 
+// ひらがな⇔カタカナを正規化（全てひらがなに統一）
+function normalizeKana(str: string): string {
+  return str.replace(/[\u30A1-\u30F6]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0x60)
+  );
+}
+
 function getHighlightInfo(
   fullText: string,
   keywords: Keyword[],
@@ -73,20 +80,23 @@ function getHighlightInfo(
 
   const totalChars = fullText.length;
   const totalRows = Math.ceil(totalChars / charsPerLine);
+  // 検索用に正規化したテキスト（位置は元テキストと1対1対応）
+  const normText = normalizeKana(fullText.toLowerCase());
 
   for (const kw of keywords) {
     if (!kw.word) continue;
-    const word = kw.word;
+    const normWord = normalizeKana(kw.word.toLowerCase());
+    const word = normWord;
     const kLen = word.length;
-    const dirs = kw.directions ?? ['h'];
+    const dirs = kw.directions ?? ['h', 'v', 'd'];
     const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     if (dirs.includes('h')) {
       for (let row = 0; row < totalRows; row++) {
         const lineStart = row * charsPerLine;
         const lineEnd = Math.min(lineStart + charsPerLine, totalChars);
-        const line = fullText.slice(lineStart, lineEnd);
-        const regex = new RegExp(escaped, 'gi');
+        const line = normText.slice(lineStart, lineEnd);
+        const regex = new RegExp(escaped, 'g');
         let m;
         while ((m = regex.exec(line)) !== null) {
           const start = lineStart + m.index;
@@ -103,7 +113,7 @@ function getHighlightInfo(
           let match = true;
           for (let j = 0; j < kLen; j++) {
             const pos = (row + j) * charsPerLine + col;
-            if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
+            if (pos >= totalChars || normText[pos] !== word[j]) {
               match = false; break;
             }
           }
@@ -123,7 +133,7 @@ function getHighlightInfo(
           let match = true;
           for (let j = 0; j < kLen; j++) {
             const pos = (row + j) * charsPerLine + (col + j);
-            if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
+            if (pos >= totalChars || normText[pos] !== word[j]) {
               match = false; break;
             }
           }
@@ -140,7 +150,7 @@ function getHighlightInfo(
           let match = true;
           for (let j = 0; j < kLen; j++) {
             const pos = (row + j) * charsPerLine + (col - j);
-            if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
+            if (pos >= totalChars || normText[pos] !== word[j]) {
               match = false; break;
             }
           }
@@ -170,7 +180,6 @@ export default function MemoPage() {
   const [copied, setCopied] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
-  const [newKeywordDirs, setNewKeywordDirs] = useState<string[]>(['h']);
   const [scale, setScale] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -264,19 +273,13 @@ export default function MemoPage() {
     }
   };
 
-  const toggleDir = (dir: string) => {
-    setNewKeywordDirs((prev) =>
-      prev.includes(dir) ? prev.filter((d) => d !== dir) : [...prev, dir]
-    );
-  };
-
   const handleAddKeyword = async () => {
     const word = keywordInput.trim();
-    if (!word || newKeywordDirs.length === 0) return;
+    if (!word) return;
     const res = await fetch(`/api/memo/${id}/keywords`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: userName, word, action: 'add', directions: newKeywordDirs }),
+      body: JSON.stringify({ name: userName, word, action: 'add', directions: ['h', 'v', 'd'] }),
     });
     const data = await res.json();
     setMemo(data);
@@ -348,7 +351,7 @@ export default function MemoPage() {
         </button>
       </div>
       {/* Header row 2: participants */}
-      <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 pb-2 flex items-center gap-2 overflow-x-auto min-h-[28px]">
+      <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 py-2 flex items-center gap-2 overflow-x-auto min-h-[40px]">
         {memo.participants.length === 0 ? (
           <span className="text-xs text-zinc-400">参加者なし</span>
         ) : (
@@ -368,19 +371,6 @@ export default function MemoPage() {
       {showConfig && (
         <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 p-4 space-y-3">
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">強調キーワード設定</h2>
-          <div className="flex gap-3 items-center">
-            <span className="text-xs text-zinc-500">方向:</span>
-            {([['h', '横'], ['v', '縦'], ['d', '斜め']] as const).map(([dir, label]) => (
-              <label key={dir} className="flex items-center gap-1 text-xs cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={newKeywordDirs.includes(dir)}
-                  onChange={() => toggleDir(dir)}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
           <div className="flex gap-2">
             <input
               type="text"
@@ -405,9 +395,7 @@ export default function MemoPage() {
                 className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-700"
               >
                 {k.word}
-                <span className="text-zinc-400">
-                  ({k.addedBy} / {(k.directions ?? ['h']).map((d) => d === 'h' ? '横' : d === 'v' ? '縦' : '斜').join('・')})
-                </span>
+                <span className="text-zinc-400">({k.addedBy})</span>
                 {k.addedBy === userName && (
                   <button
                     onClick={() => handleRemoveKeyword(k.word)}
@@ -471,7 +459,7 @@ export default function MemoPage() {
                       justifyContent: 'center',
                       width: `${(LINE_WIDTH_PX - 8) / CHARS_PER_LINE}px`,
                       height: `${CELL_PX}px`,
-                      fontSize: fw ? `${CELL_PX * 0.88}px` : `${CELL_PX * 0.44}px`,
+                      fontSize: fw ? `${CELL_PX * 0.88}px` : `${CELL_PX * 0.72}px`,
                       color: cell.color,
                       flexShrink: 0,
                       boxSizing: 'border-box',
@@ -503,7 +491,7 @@ export default function MemoPage() {
           <textarea
             className="flex-1 border border-zinc-200 dark:border-zinc-600 rounded-lg px-3 py-2 bg-zinc-50 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-zinc-400"
             rows={1}
-            placeholder="メモを入力 (PC: Ctrl+Enter で保存)"
+            placeholder="メモを入力 (Enter で保存)"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
