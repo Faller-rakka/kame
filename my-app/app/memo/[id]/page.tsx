@@ -382,7 +382,7 @@ export default function MemoPage() {
             />
             <button
               onClick={handleAddKeyword}
-              disabled={!keywordInput.trim() || newKeywordDirs.length === 0}
+              disabled={!keywordInput.trim()}
               className="px-3 py-1.5 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 rounded-lg text-sm font-medium hover:opacity-80 disabled:opacity-40 transition-opacity"
             >
               追加
