@@ -8,7 +8,7 @@ const kv = Redis.fromEnv();
 const ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const COLORS = [
-  '#e74c3c', '#3498db', '#2ecc71', '#f39c12',
+  '#6366f1', '#3498db', '#16a34a', '#f97316',
   '#9b59b6', '#1abc9c', '#e67e22', '#16a085',
 ];
 

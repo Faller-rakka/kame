@@ -55,8 +55,9 @@ interface HighlightInfo {
 
 function cellBackground(h: boolean, v: boolean, d: boolean): string | undefined {
   const overlap = (h ? 1 : 0) + (v ? 1 : 0) + (d ? 1 : 0) >= 2;
-  if (h) return overlap ? 'rgba(220, 38, 38, 0.7)' : 'rgba(239, 68, 68, 0.35)';
-  if (v) return overlap ? 'rgba(101, 163, 13, 0.7)' : 'rgba(132, 204, 22, 0.4)';
+  if (overlap) return 'rgba(125, 211, 252, 0.6)'; // 水色
+  if (h) return 'rgba(239, 68, 68, 0.35)';
+  if (v) return 'rgba(132, 204, 22, 0.4)';
   if (d) return 'rgba(250, 204, 21, 0.5)';
   return undefined;
 }
@@ -258,12 +259,8 @@ export default function MemoPage() {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        handleSave();
-      } else {
-        e.preventDefault();
-      }
+      e.preventDefault();
+      handleSave();
     }
   };
 
