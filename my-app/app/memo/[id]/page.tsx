@@ -48,11 +48,17 @@ interface MemoData {
 }
 
 interface HighlightInfo {
-  hTop: boolean;
-  hBottom: boolean;
-  hLeft: boolean;
-  hRight: boolean;
-  vd: boolean;
+  h: boolean;
+  v: boolean;
+  d: boolean;
+}
+
+function cellBackground(h: boolean, v: boolean, d: boolean): string | undefined {
+  const overlap = (h ? 1 : 0) + (v ? 1 : 0) + (d ? 1 : 0) >= 2;
+  if (h) return overlap ? 'rgba(220, 38, 38, 0.7)' : 'rgba(239, 68, 68, 0.35)';
+  if (v) return overlap ? 'rgba(101, 163, 13, 0.7)' : 'rgba(132, 204, 22, 0.4)';
+  if (d) return 'rgba(250, 204, 21, 0.5)';
+  return undefined;
 }
 
 function getHighlightInfo(
@@ -62,7 +68,7 @@ function getHighlightInfo(
 ): Map<number, HighlightInfo> {
   const map = new Map<number, HighlightInfo>();
   const get = (p: number): HighlightInfo =>
-    map.get(p) ?? { hTop: false, hBottom: false, hLeft: false, hRight: false, vd: false };
+    map.get(p) ?? { h: false, v: false, d: false };
 
   const totalChars = fullText.length;
   const totalRows = Math.ceil(totalChars / charsPerLine);
@@ -75,7 +81,6 @@ function getHighlightInfo(
     const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     if (dirs.includes('h')) {
-      // Horizontal: match only within each line (never across line boundary)
       for (let row = 0; row < totalRows; row++) {
         const lineStart = row * charsPerLine;
         const lineEnd = Math.min(lineStart + charsPerLine, totalChars);
@@ -84,16 +89,8 @@ function getHighlightInfo(
         let m;
         while ((m = regex.exec(line)) !== null) {
           const start = lineStart + m.index;
-          const end = start + kLen - 1;
-          for (let p = start; p <= end; p++) {
-            const info = get(p);
-            map.set(p, {
-              ...info,
-              hTop: true,
-              hBottom: true,
-              hLeft: info.hLeft || p === start,
-              hRight: info.hRight || p === end,
-            });
+          for (let p = start; p < start + kLen; p++) {
+            map.set(p, { ...get(p), h: true });
           }
         }
       }
@@ -106,14 +103,13 @@ function getHighlightInfo(
           for (let j = 0; j < kLen; j++) {
             const pos = (row + j) * charsPerLine + col;
             if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
-              match = false;
-              break;
+              match = false; break;
             }
           }
           if (match) {
             for (let j = 0; j < kLen; j++) {
               const pos = (row + j) * charsPerLine + col;
-              map.set(pos, { ...get(pos), vd: true });
+              map.set(pos, { ...get(pos), v: true });
             }
           }
         }
@@ -127,14 +123,13 @@ function getHighlightInfo(
           for (let j = 0; j < kLen; j++) {
             const pos = (row + j) * charsPerLine + (col + j);
             if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
-              match = false;
-              break;
+              match = false; break;
             }
           }
           if (match) {
             for (let j = 0; j < kLen; j++) {
               const pos = (row + j) * charsPerLine + (col + j);
-              map.set(pos, { ...get(pos), vd: true });
+              map.set(pos, { ...get(pos), d: true });
             }
           }
         }
@@ -145,14 +140,13 @@ function getHighlightInfo(
           for (let j = 0; j < kLen; j++) {
             const pos = (row + j) * charsPerLine + (col - j);
             if (pos >= totalChars || fullText[pos].toLowerCase() !== word[j].toLowerCase()) {
-              match = false;
-              break;
+              match = false; break;
             }
           }
           if (match) {
             for (let j = 0; j < kLen; j++) {
               const pos = (row + j) * charsPerLine + (col - j);
-              map.set(pos, { ...get(pos), vd: true });
+              map.set(pos, { ...get(pos), d: true });
             }
           }
         }
@@ -486,14 +480,9 @@ export default function MemoPage() {
                       boxSizing: 'border-box',
                       lineHeight: 1,
                     };
-                    if (info?.vd) {
-                      style.backgroundColor = 'rgba(255, 220, 0, 0.5)';
-                    }
-                    if (info?.hTop) {
-                      style.borderTop = '2px solid #ef4444';
-                      style.borderBottom = '2px solid #ef4444';
-                      if (info.hLeft) style.borderLeft = '2px solid #ef4444';
-                      if (info.hRight) style.borderRight = '2px solid #ef4444';
+                    if (info) {
+                      const bg = cellBackground(info.h, info.v, info.d);
+                      if (bg) style.backgroundColor = bg;
                     }
                     return (
                       <span key={colIdx} style={style}>
