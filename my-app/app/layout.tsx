@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "共有メモ帳",
+  title: "Chat Blitz",
   description: "リンクを知っている人だけがアクセスできる共有メモ帳",
 };
 

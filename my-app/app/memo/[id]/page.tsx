@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 
-const CHARS_PER_LINE = 23;
+const CHARS_PER_LINE = 15;
 const CELL_PX = 22; // pixel width & height per character cell
 const LINE_WIDTH_PX = CELL_PX * CHARS_PER_LINE; // 506px
 
@@ -177,6 +177,7 @@ export default function MemoPage() {
   const [keywordInput, setKeywordInput] = useState('');
   const [newKeywordDirs, setNewKeywordDirs] = useState<string[]>(['h']);
   const [scale, setScale] = useState(1);
+  const [isMobile, setIsMobile] = useState(false);
   const mainRef = useRef<HTMLDivElement>(null);
 
   const userColor = memo.participants.find((p) => p.name === userName)?.color ?? '#888';
@@ -197,11 +198,13 @@ export default function MemoPage() {
     gridRows.push(row);
   }
 
-  // Auto-scale to fit viewport
+  // Auto-scale to fit viewport + detect mobile
   useEffect(() => {
     if (!mainRef.current) return;
     const calc = () => {
-      const available = (mainRef.current?.clientWidth ?? window.innerWidth) - 32;
+      const w = mainRef.current?.clientWidth ?? window.innerWidth;
+      setIsMobile(w < 640);
+      const available = w - 32;
       setScale(Math.min(1, available / LINE_WIDTH_PX));
     };
     calc();
@@ -338,7 +341,7 @@ export default function MemoPage() {
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex flex-col">
       {/* Header row 1 */}
       <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 pt-3 pb-1 flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 shrink-0">共有メモ帳</h1>
+        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 shrink-0">Chat Blitz</h1>
         <div className="flex-1" />
         <button
           onClick={() => setShowConfig(!showConfig)}
@@ -440,7 +443,11 @@ export default function MemoPage() {
         ) : (
           <div style={{ zoom: scale, transformOrigin: 'top center' }}>
             <div
-              style={{
+              style={isMobile ? {
+                border: '2px solid black',
+                display: 'inline-block',
+                boxSizing: 'content-box',
+              } : {
                 border: '2px solid black',
                 display: 'inline-block',
                 columns: 'auto',
@@ -480,7 +487,7 @@ export default function MemoPage() {
                       lineHeight: 1,
                     };
                     if (info?.vd) {
-                      style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                      style.backgroundColor = 'rgba(255, 220, 0, 0.5)';
                     }
                     if (info?.hTop) {
                       style.borderTop = '2px solid #ef4444';
