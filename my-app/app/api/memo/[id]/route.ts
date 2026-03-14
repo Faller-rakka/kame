@@ -38,7 +38,7 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
   }
   const memo = await kv.get<MemoData>(`memo:${id}`);
-  return NextResponse.json(memo ?? { segments: [], participants: [] }, {
+  return NextResponse.json(memo ?? { segments: [], participants: [], keywords: [] }, {
     headers: { 'Cache-Control': 'no-store' },
   });
 }
