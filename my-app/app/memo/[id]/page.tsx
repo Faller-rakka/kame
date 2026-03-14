@@ -26,19 +26,49 @@ interface MemoData {
   keywords: Keyword[];
 }
 
-function renderTextWithKeywords(text: string, keywords: string[]): React.ReactNode {
-  if (keywords.length === 0) return text;
+// セグメント全体を結合した文字列でキーワードを検索し、
+// 各セグメントのオフセットを考慮してハイライト位置を計算する
+function buildKeywordedPositions(segments: { text: string }[], keywords: string[]): Set<number> {
+  const positions = new Set<number>();
+  if (keywords.length === 0) return positions;
+  const fullText = segments.map((s) => s.text).join('');
   const escaped = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const regex = new RegExp(`(${escaped.join('|')})`, 'gi');
-  const parts = text.split(regex);
-  return parts.map((part, i) =>
-    keywords.some((k) => k.toLowerCase() === part.toLowerCase()) ? (
-      <span key={i} style={{ outline: '2px solid red', borderRadius: '2px', padding: '0 1px' }}>
-        {part}
-      </span>
-    ) : (
-      part
-    )
+  const regex = new RegExp(escaped.join('|'), 'gi');
+  let match;
+  while ((match = regex.exec(fullText)) !== null) {
+    for (let i = match.index; i < match.index + match[0].length; i++) {
+      positions.add(i);
+    }
+  }
+  return positions;
+}
+
+function renderSegmentWithHighlights(
+  seg: { text: string; color: string },
+  offset: number,
+  keywordedPositions: Set<number>
+): React.ReactNode {
+  const spans: { text: string; highlighted: boolean }[] = [];
+  let i = 0;
+  while (i < seg.text.length) {
+    const highlighted = keywordedPositions.has(offset + i);
+    let j = i;
+    while (j < seg.text.length && keywordedPositions.has(offset + j) === highlighted) j++;
+    spans.push({ text: seg.text.slice(i, j), highlighted });
+    i = j;
+  }
+  return (
+    <span style={{ color: seg.color }}>
+      {spans.map((span, idx) =>
+        span.highlighted ? (
+          <span key={idx} style={{ outline: '2px solid red', borderRadius: '2px', padding: '0 1px' }}>
+            {span.text}
+          </span>
+        ) : (
+          span.text
+        )
+      )}
+    </span>
   );
 }
 
@@ -58,10 +88,11 @@ export default function MemoPage() {
 
   const userColor = memo.participants.find((p) => p.name === userName)?.color ?? '#888';
   const allKeywords = (memo.keywords ?? []).map((k) => k.word);
+  const keywordedPositions = buildKeywordedPositions(memo.segments, allKeywords);
 
   const fetchMemo = useCallback(async () => {
     try {
-      const res = await fetch(`/api/memo/${id}`, { cache: 'no-store' });
+      const res = await fetch(`/api/memo/${id}?t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       setMemo(data);
     } catch {}
@@ -75,7 +106,7 @@ export default function MemoPage() {
   useEffect(() => {
     if (!userName) return;
     fetchMemo();
-    const interval = setInterval(fetchMemo, 5000);
+    const interval = setInterval(fetchMemo, 2000);
     return () => clearInterval(interval);
   }, [userName, fetchMemo]);
 
@@ -267,14 +298,19 @@ export default function MemoPage() {
           </p>
         )}
         <p className="text-sm leading-relaxed break-words">
-          {memo.segments.map((seg, i) => (
-            <span key={i}>
-              {i > 0 && ' '}
-              <span style={{ color: seg.color }}>
-                {renderTextWithKeywords(seg.text, allKeywords)}
-              </span>
-            </span>
-          ))}
+          {(() => {
+            let offset = 0;
+            return memo.segments.map((seg, i) => {
+              const segOffset = offset;
+              offset += seg.text.length;
+              return (
+                <span key={i}>
+                  {i > 0 && ' '}
+                  {renderSegmentWithHighlights(seg, segOffset, keywordedPositions)}
+                </span>
+              );
+            });
+          })()}
         </p>
         <div ref={bottomRef} />
       </main>
