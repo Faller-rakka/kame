@@ -1,9 +1,27 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 
 const CHARS_PER_LINE = 23;
+const CELL_PX = 22; // pixel width & height per character cell
+const LINE_WIDTH_PX = CELL_PX * CHARS_PER_LINE; // 506px
+
+function isFullWidthChar(ch: string): boolean {
+  const code = ch.codePointAt(0) ?? 0;
+  return (
+    (code >= 0x1100 && code <= 0x115F) ||  // Hangul
+    (code >= 0x2E80 && code <= 0x303F) ||  // CJK Radicals / Kangxi
+    (code >= 0x3040 && code <= 0x33FF) ||  // Hiragana, Katakana, etc.
+    (code >= 0x3400 && code <= 0x4DBF) ||  // CJK Ext A
+    (code >= 0x4E00 && code <= 0x9FFF) ||  // CJK Unified
+    (code >= 0xAC00 && code <= 0xD7AF) ||  // Hangul Syllables
+    (code >= 0xF900 && code <= 0xFAFF) ||  // CJK Compat
+    (code >= 0xFE30 && code <= 0xFE4F) ||  // CJK Compat Forms
+    (code >= 0xFF00 && code <= 0xFF60) ||  // Fullwidth Forms
+    (code >= 0xFFE0 && code <= 0xFFE6)     // Fullwidth Signs
+  );
+}
 
 interface Segment {
   author: string;
@@ -20,7 +38,7 @@ interface Participant {
 interface Keyword {
   word: string;
   addedBy: string;
-  directions: string[]; // 'h' | 'v' | 'd'
+  directions: string[];
 }
 
 interface MemoData {
@@ -57,6 +75,7 @@ function getHighlightInfo(
     const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     if (dirs.includes('h')) {
+      // Horizontal: match only within each line (never across line boundary)
       for (let row = 0; row < totalRows; row++) {
         const lineStart = row * charsPerLine;
         const lineEnd = Math.min(lineStart + charsPerLine, totalChars);
@@ -102,7 +121,6 @@ function getHighlightInfo(
     }
 
     if (dirs.includes('d')) {
-      // ↘
       for (let row = 0; row + kLen <= totalRows; row++) {
         for (let col = 0; col + kLen <= charsPerLine; col++) {
           let match = true;
@@ -121,7 +139,6 @@ function getHighlightInfo(
           }
         }
       }
-      // ↙
       for (let row = 0; row + kLen <= totalRows; row++) {
         for (let col = kLen - 1; col < charsPerLine; col++) {
           let match = true;
@@ -159,10 +176,12 @@ export default function MemoPage() {
   const [showConfig, setShowConfig] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
   const [newKeywordDirs, setNewKeywordDirs] = useState<string[]>(['h']);
+  const [scale, setScale] = useState(1);
+  const mainRef = useRef<HTMLDivElement>(null);
 
   const userColor = memo.participants.find((p) => p.name === userName)?.color ?? '#888';
 
-  // Build grid data
+  // Build grid
   const fullText = memo.segments.map((s) => s.text).join('');
   const charColors: string[] = [];
   for (const seg of memo.segments) {
@@ -177,6 +196,19 @@ export default function MemoPage() {
     }
     gridRows.push(row);
   }
+
+  // Auto-scale to fit viewport
+  useEffect(() => {
+    if (!mainRef.current) return;
+    const calc = () => {
+      const available = (mainRef.current?.clientWidth ?? window.innerWidth) - 32;
+      setScale(Math.min(1, available / LINE_WIDTH_PX));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    if (mainRef.current) ro.observe(mainRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   const fetchMemo = useCallback(async () => {
     try {
@@ -304,11 +336,9 @@ export default function MemoPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-900 flex flex-col">
-      {/* Header row 1: title + buttons */}
+      {/* Header row 1 */}
       <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 pt-3 pb-1 flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 shrink-0">
-          共有メモ帳
-        </h1>
+        <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 shrink-0">共有メモ帳</h1>
         <div className="flex-1" />
         <button
           onClick={() => setShowConfig(!showConfig)}
@@ -324,19 +354,20 @@ export default function MemoPage() {
         </button>
       </div>
       {/* Header row 2: participants */}
-      <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 pb-2 flex items-center gap-2 overflow-x-auto">
-        {memo.participants.length === 0 && (
+      <div className="bg-white dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 px-4 pb-2 flex items-center gap-2 overflow-x-auto min-h-[28px]">
+        {memo.participants.length === 0 ? (
           <span className="text-xs text-zinc-400">参加者なし</span>
+        ) : (
+          memo.participants.map((p) => (
+            <span
+              key={p.name}
+              className="text-xs px-2 py-0.5 rounded-full text-white font-medium whitespace-nowrap"
+              style={{ backgroundColor: p.color }}
+            >
+              {p.name}
+            </span>
+          ))
         )}
-        {memo.participants.map((p) => (
-          <span
-            key={p.name}
-            className="text-xs px-2 py-0.5 rounded-full text-white font-medium whitespace-nowrap"
-            style={{ backgroundColor: p.color }}
-          >
-            {p.name}
-          </span>
-        ))}
       </div>
 
       {/* Config panel */}
@@ -345,13 +376,12 @@ export default function MemoPage() {
           <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">強調キーワード設定</h2>
           <div className="flex gap-3 items-center">
             <span className="text-xs text-zinc-500">方向:</span>
-            {[['h', '横'], ['v', '縦'], ['d', '斜め']].map(([dir, label]) => (
+            {([['h', '横'], ['v', '縦'], ['d', '斜め']] as const).map(([dir, label]) => (
               <label key={dir} className="flex items-center gap-1 text-xs cursor-pointer">
                 <input
                   type="checkbox"
                   checked={newKeywordDirs.includes(dir)}
                   onChange={() => toggleDir(dir)}
-                  className="rounded"
                 />
                 {label}
               </label>
@@ -382,7 +412,7 @@ export default function MemoPage() {
               >
                 {k.word}
                 <span className="text-zinc-400">
-                  ({k.addedBy} / {(k.directions ?? ['h']).map(d => d === 'h' ? '横' : d === 'v' ? '縦' : '斜').join('・')})
+                  ({k.addedBy} / {(k.directions ?? ['h']).map((d) => d === 'h' ? '横' : d === 'v' ? '縦' : '斜').join('・')})
                 </span>
                 {k.addedBy === userName && (
                   <button
@@ -402,52 +432,71 @@ export default function MemoPage() {
       )}
 
       {/* Grid content */}
-      <main className="flex-1 overflow-auto p-4 flex justify-center">
+      <main ref={mainRef} className="flex-1 overflow-auto p-4 flex justify-center">
         {fullText.length === 0 ? (
-          <p className="text-center text-zinc-400 mt-16 text-sm self-start w-full">
+          <p className="text-center text-zinc-400 mt-16 text-sm w-full">
             まだ内容がありません。最初のメモを書いてみましょう！
           </p>
         ) : (
-          <div
-            style={{
-              fontFamily: '"Courier New", Courier, monospace',
-              fontSize: '16px',
-              columns: 'auto',
-              columnWidth: '23ch',
-              columnGap: '0',
-              columnRule: '1px solid #9ca3af',
-              columnFill: 'auto',
-              height: 'calc(100vh - 220px)',
-            }}
-          >
-            {gridRows.map((row, rowIdx) => (
-              <div
-                key={rowIdx}
-                style={{ breakInside: 'avoid', lineHeight: '1.8', padding: '0 8px', width: '23ch' }}
-              >
-                {row.map((cell, colIdx) => {
-                  const info = highlightInfo.get(cell.pos);
-                  const style: React.CSSProperties = { color: cell.color };
-                  if (info?.vd) {
-                    style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
-                    style.borderRadius = '2px';
-                  }
-                  if (info?.hTop) {
-                    style.display = 'inline-block';
-                    style.borderTop = '2px solid #ef4444';
-                    style.borderBottom = '2px solid #ef4444';
-                    style.lineHeight = 'inherit';
-                    if (info.hLeft) style.borderLeft = '2px solid #ef4444';
-                    if (info.hRight) style.borderRight = '2px solid #ef4444';
-                  }
-                  return (
-                    <span key={colIdx} style={style}>
-                      {cell.char}
-                    </span>
-                  );
-                })}
-              </div>
-            ))}
+          <div style={{ zoom: scale, transformOrigin: 'top center' }}>
+            <div
+              style={{
+                border: '2px solid black',
+                display: 'inline-block',
+                columns: 'auto',
+                columnWidth: `${LINE_WIDTH_PX}px`,
+                columnGap: '0',
+                columnRule: '2px solid #6b7280',
+                columnFill: 'auto',
+                height: 'calc(100vh - 230px)',
+                boxSizing: 'content-box',
+              }}
+            >
+              {gridRows.map((row, rowIdx) => (
+                <div
+                  key={rowIdx}
+                  style={{
+                    breakInside: 'avoid',
+                    display: 'flex',
+                    width: `${LINE_WIDTH_PX}px`,
+                    height: `${CELL_PX}px`,
+                    padding: '0 4px',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  {row.map((cell, colIdx) => {
+                    const info = highlightInfo.get(cell.pos);
+                    const fw = isFullWidthChar(cell.char);
+                    const style: React.CSSProperties = {
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: `${(LINE_WIDTH_PX - 8) / CHARS_PER_LINE}px`,
+                      height: `${CELL_PX}px`,
+                      fontSize: fw ? `${CELL_PX * 0.88}px` : `${CELL_PX * 0.44}px`,
+                      color: cell.color,
+                      flexShrink: 0,
+                      boxSizing: 'border-box',
+                      lineHeight: 1,
+                    };
+                    if (info?.vd) {
+                      style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                    }
+                    if (info?.hTop) {
+                      style.borderTop = '2px solid #ef4444';
+                      style.borderBottom = '2px solid #ef4444';
+                      if (info.hLeft) style.borderLeft = '2px solid #ef4444';
+                      if (info.hRight) style.borderRight = '2px solid #ef4444';
+                    }
+                    return (
+                      <span key={colIdx} style={style}>
+                        {cell.char}
+                      </span>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </main>
