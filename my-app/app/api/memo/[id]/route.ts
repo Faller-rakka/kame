@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
 
+export const dynamic = 'force-dynamic';
+
 const kv = Redis.fromEnv();
 
 const ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,7 +38,9 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
   }
   const memo = await kv.get<MemoData>(`memo:${id}`);
-  return NextResponse.json(memo ?? { segments: [], participants: [] });
+  return NextResponse.json(memo ?? { segments: [], participants: [] }, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
 }
 
 export async function POST(

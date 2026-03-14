@@ -36,7 +36,7 @@ export default function MemoPage() {
 
   const fetchMemo = useCallback(async () => {
     try {
-      const res = await fetch(`/api/memo/${id}`);
+      const res = await fetch(`/api/memo/${id}`, { cache: 'no-store' });
       const data = await res.json();
       setMemo(data);
     } catch {}
